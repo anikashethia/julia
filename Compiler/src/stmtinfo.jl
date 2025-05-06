@@ -390,6 +390,11 @@ function add_inlining_edge!(edges::Vector{Any}, edge::CodeInstance)
     nothing
 end
 
+nsplit_impl(info::InvokeCallInfo) = 1
+getsplit_impl(info::InvokeCallInfo, idx::Int) = (@assert idx == 1; MethodLookupResult(Core.MethodMatch[info.match],
+    WorldRange(typemin(UInt), typemax(UInt)), false))
+getresult_impl(info::InvokeCallInfo, idx::Int) = (@assert idx == 1; info.result)
+
 
 """
     info::OpaqueClosureCallInfo
