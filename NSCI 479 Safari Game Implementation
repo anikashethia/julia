@@ -1,0 +1,205 @@
+using Luxor
+using Random
+using Colors
+using Printf
+
+@enum PlayerAction KeyUp=1 KeyDown=2 KeyLeft=3 KeyRight=4 # add diagonals - upleft, upright, etc.
+# or prss 2 keys
+
+mutable struct Entity
+    x::Float64
+    y::Float64
+    radius::Float64
+    color::Color
+end
+
+mutable struct Hyena
+    x::Float64
+    y::Float64
+    radius::Float64
+    color::Color
+    dx::Float64
+    dy::Float64
+end
+
+mutable struct GameState
+    player::Entity
+    rabbits::Vector{Entity}
+    hyenas::Vector{Hyena}
+    score::Int
+    energy::Float64
+    frame::Int
+    width::Int
+    height::Int
+    isGameOver::Bool
+end
+
+function init_game(width, height)
+    player = Entity(width/2, height/2, 20.0, colorant"black")
+    hyenas = [Hyena(rand(50:width-50), rand(50:height-50), 30.0, colorant"dimgray", rand([-1,1])*3, rand([-1,1])*3) for _ in 1:7]
+    return GameState(player, Entity[], hyenas, 0, 100.0, 1, width, height, false)
+end
+
+function move_player!(state::GameState, action::PlayerAction)
+    dx, dy = 0.0, 0.0
+    if action == KeyUp; dy -= 4 # add extra conditions
+    elseif action == KeyDown; dy += 4
+    elseif action == KeyLeft; dx -= 4
+    elseif action == KeyRight; dx += 4
+    end
+
+    newx = clamp(state.player.x + dx, state.player.radius, state.width - state.player.radius)
+    newy = clamp(state.player.y + dy, state.player.radius, state.height - state.player.radius)
+
+    state.player.x = newx
+    state.player.y = newy
+end
+
+function spawn_rabbit!(state::GameState)
+    if length(state.rabbits) >= 5 || state.isGameOver; return; end
+    x = rand(50:state.width - 50)
+    y = rand(50:state.height - 50)
+    push!(state.rabbits, Entity(x, y, 10, colorant"darkolivegreen"))
+end
+
+function move_hyenas!(state::GameState)
+    for h in state.hyenas
+        nextx = h.x + h.dx
+        nexty = h.y + h.dy
+
+        if nextx - h.radius < 0 || nextx + h.radius > state.width
+            h.dx *= -1
+        else
+            h.x = nextx
+        end
+        if nexty - h.radius < 0 || nexty + h.radius > state.height
+            h.dy *= -1
+        else
+            h.y = nexty
+        end
+    end
+end
+
+function check_collisions!(state::GameState)
+    px, py, pr = state.player.x, state.player.y, state.player.radius
+
+    state.rabbits = filter(r -> begin
+        if hypot(r.x - px, r.y - py) < r.radius + pr
+            state.score += 1
+            state.energy = min(100.0, state.energy + 20)
+            return false
+        end
+        return true
+    end, state.rabbits)
+
+    for h in state.hyenas
+        if hypot(h.x - px, h.y - py) < h.radius + pr
+            state.isGameOver = true
+        end
+    end
+end
+
+function draw_game(state::GameState)
+    fname = @sprintf("frame%03d.png", state.frame)
+    Drawing(state.width, state.height, fname)
+    origin()
+    background("white")
+    translate(-state.width/2, -state.height/2)
+
+    # Draw player
+    setcolor(state.player.color)
+    circle(Point(state.player.x, state.player.y), state.player.radius, :fill)
+
+    # Draw rabbits
+    for r in state.rabbits
+        setcolor(r.color)
+        circle(Point(r.x, r.y), r.radius, :fill)
+    end
+
+    # Draw hyenas
+    for h in state.hyenas
+        setcolor(h.color)
+        circle(Point(h.x, h.y), h.radius, :fill)
+    end
+
+    # Draw score + energy
+    setcolor("black")
+    fontsize(16)
+    text("Score: $(state.score)", Point(10, 20))
+    text("Energy: $(round(state.energy, digits=1))", Point(10, 40))
+
+    finish()
+    state.frame += 1
+end
+
+function direction_to(from_x, from_y, to_x, to_y)
+    dx = to_x - from_x
+    dy = to_y - from_y
+    if abs(dx) > abs(dy)
+        return dx > 0 ? KeyRight : KeyLeft
+    else
+        return dy > 0 ? KeyDown : KeyUp
+    end
+end
+
+function choose_action(state::GameState)
+    px, py = state.player.x, state.player.y
+    danger_radius = 100.0
+
+    # avoid hyenas
+    closest_hyena = nothing
+    min_dist = Inf
+    for h in state.hyenas
+        d = hypot(h.x - px, h.y - py)
+        if d < min_dist
+            min_dist = d
+            closest_hyena = h
+        end
+    end
+
+    if !isnothing(closest_hyena) && min_dist < danger_radius
+        return direction_to(px, py, px - (closest_hyena.x - px), py - (closest_hyena.y - py))
+    end
+
+    # approach rabbits
+    closest_rabbit = nothing
+    min_dist = Inf
+    for r in state.rabbits
+        d = hypot(r.x - px, r.y - py)
+        if d < min_dist
+            min_dist = d
+            closest_rabbit = r
+        end
+    end
+
+    if !isnothing(closest_rabbit)
+        return direction_to(px, py, closest_rabbit.x, closest_rabbit.y)
+    end
+
+    return rand([KeyUp, KeyDown, KeyLeft, KeyRight])
+end
+
+function simulate_game()
+    width, height = 800, 600
+    state = init_game(width, height)
+
+    for _ in 1:120
+        if state.isGameOver
+            break
+        end
+
+        spawn_rabbit!(state)
+        action = choose_action(state)
+        move_player!(state, action)
+        move_hyenas!(state)
+        check_collisions!(state)
+        draw_game(state)
+
+        state.energy -= 0.5
+        if state.energy <= 0
+            state.isGameOver = true
+        end
+    end
+end
+
+simulate_game()
